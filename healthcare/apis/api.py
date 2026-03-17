@@ -1,5 +1,8 @@
 import frappe
+from frappe.utils import get_datetime
+
 from .utils import validate_api_payload,handle_exception
+from healthcare.healthcare.utils import get_appointments_to_invoice, get_encounters_to_invoice, get_lab_tests_to_invoice, get_clinical_procedures_to_invoice, get_inpatient_services_to_invoice, get_therapy_plans_to_invoice, get_therapy_sessions_to_invoice, get_service_requests_to_invoice, get_observations_to_invoice, validate_customer_created
 from healthcare.healthcare.doctype.lab_test.lab_test import get_lab_test_count_for_doc,create_lab_test
 from healthcare.healthcare.doctype.healthcare_settings.healthcare_settings import get_income_account
 
@@ -31,12 +34,12 @@ def get_patient(filters=None, fields=None, limit=10, start=0, order_by=None, saf
 
 @frappe.whitelist()
 @validate_api_payload(
-    allowed_fields=["name", "title", "patient", "patient_name", "practitioner", "practitioner_name","encounter_date"],
+    allowed_fields=["name", "title", "patient", "patient_name", "practitioner", "practitioner_name","encounter_date" , "encounter_time","medical_department"],
     allowed_filters=["name", "patient", "patient_name", "practitioner", "practitioner_name","encounter_date"],
 )
 def get_patient_encounter(filters=None, fields=None, limit=10, start=0, order_by=None, safe_filters=None, or_filters=None):
     safe_filters.append(["docstatus","=",1])
-    return frappe.get_all(
+    list_data = frappe.get_all(
         "Patient Encounter",
         filters=safe_filters,
         or_filters=or_filters,
@@ -46,6 +49,15 @@ def get_patient_encounter(filters=None, fields=None, limit=10, start=0, order_by
         order_by=order_by,
         ignore_permissions=True
     )
+    result = []
+    from frappe.utils import get_datetime
+    for encounter in list_data:
+        encounter_date_str = f"{encounter.get('encounter_date')} {encounter.get('encounter_time')}"
+        encounter_dt = get_datetime(encounter_date_str)
+        encounter["encounter_time"] = encounter_dt.strftime("%H:%M:%S")
+        result.append(encounter)
+
+    return result
 
 @frappe.whitelist()
 @validate_api_payload(
@@ -106,9 +118,27 @@ def get_drug_prescription(filters=None, fields=None, limit=10, start=0, order_by
 )
 def get_service_requests(filters=None, fields=None, limit=50, start=0, order_by=None, safe_filters=None, or_filters=None):
     try:
+        # patient = frappe.get_doc("Patient", patient)
+        # items_to_invoice = []
+        # if patient:
+        #     # Customer validated, build a list of billable services
+        #     items_to_invoice += get_appointments_to_invoice(patient, patient.company)
+        #     items_to_invoice += get_encounters_to_invoice(patient, patient.company)
+        #     items_to_invoice += get_lab_tests_to_invoice(patient, patient.company)
+        #     items_to_invoice += get_clinical_procedures_to_invoice(patient, patient.company)
+        #     items_to_invoice += get_inpatient_services_to_invoice(patient, patient.company)
+        #     items_to_invoice += get_therapy_plans_to_invoice(patient, patient.company)
+        #     items_to_invoice += get_therapy_sessions_to_invoice(patient, company)
+        #     items_to_invoice += get_service_requests_to_invoice(patient, company)
+        #     items_to_invoice += get_observations_to_invoice(patient, company)
+        #     validate_customer_created(patient, customer, link_customer)
+        #     return items_to_invoice
+
         result = []
         
-        sr_filters = {"docstatus": "1"}
+        
+        sr_filters = { "billing_status": ["!=", "Invoiced"], "docstatus": 1, }
+        
         if filters.get("patient"):
             sr_filters["patient"] = ["like", f"%{filters.get('patient')}%"]
         if filters.get("encouner_name"):
@@ -127,20 +157,23 @@ def get_service_requests(filters=None, fields=None, limit=50, start=0, order_by=
         for sr in service_requests:
             if sr.get("template_dt") and sr.get("template_dn"):
                 item = frappe.get_value(sr.get("template_dt"), {"name":sr.get("template_dn")}, ["*"],as_dict=True)
-            obj = {
-                "name":sr.get("name"),
-                "reference_type": "Service Request",
-                "reference_name":  sr.name,
-                "service": item.get("item") or item.get("lab_test_name"),
-                "item_name":item.get("item_code") or item.get("lab_test_name"),
-                "qty": getattr(sr, "quantity"),
-                "rate": item.get("rate")or item.get("lab_test_rate"),
-                "serverice_type":sr.get("template_dt"),
-                "order_date":sr.get("order_date"),
-                "practitioner":sr.get("practitioner"),
-                "income_account": get_income_account(sr.get("practitioner"), sr.get("company"))
-            }
-            result.append(obj)
+            item_name = item.get("item_code") or item.get("lab_test_name")
+            
+            if item_name:
+                obj = {
+                    "name":sr.get("name"),
+                    "reference_type": "Service Request",
+                    "reference_name":  sr.name,
+                    "service": item.get("item") or item.get("lab_test_name"),
+                    "item_name":item.get("item_code") or item.get("lab_test_name"),
+                    "qty": getattr(sr, "quantity"),
+                    "rate": item.get("rate")or item.get("lab_test_rate"),
+                    "serverice_type":sr.get("template_dt"),
+                    "order_date":sr.get("order_date"),
+                    "practitioner":sr.get("practitioner"),
+                    "income_account": get_income_account(sr.get("practitioner"), sr.get("company"))
+                }
+                result.append(obj)
 
         return result
 
