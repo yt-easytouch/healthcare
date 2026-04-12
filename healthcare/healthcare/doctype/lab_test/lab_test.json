@@ -50,6 +50,10 @@
   "descriptive_result",
   "sb_descriptive",
   "descriptive_test_items",
+  "sb_descriptive_selection",
+  "descriptive_selection_items",
+  "custom_lab_test_items",
+  "custom_multiple_lab_items",
   "organisms_section",
   "organism_test_items",
   "sb_sensitivity",
@@ -75,6 +79,7 @@
   "normal_toggle",
   "imaging_toggle",
   "descriptive_toggle",
+  "descriptive_selection_toggle",
   "sensitivity_toggle",
   "amended_from",
   "prescription"
@@ -629,6 +634,39 @@
    "print_hide": 1,
    "read_only": 1,
    "search_index": 1
+  },
+  {
+   "depends_on": "descriptive_selection_toggle",
+   "fieldname": "sb_descriptive_selection",
+   "fieldtype": "Section Break",
+   "label": "Descriptive Selection Result"
+  },
+  {
+   "fieldname": "descriptive_selection_items",
+   "fieldtype": "Table",
+   "label": "Descriptive Selection Result",
+   "options": "Descriptive Selection"
+  },
+  {
+   "default": "0",
+   "fieldname": "descriptive_selection_toggle",
+   "fieldtype": "Check",
+   "hidden": 1,
+   "label": "Descriptive Selection Toggle",
+   "print_hide": 1,
+   "report_hide": 1
+  },
+  {
+   "fieldname": "custom_multiple_lab_items",
+   "fieldtype": "Check",
+   "label": "Is Bundle?",
+   "no_copy": 1
+  },
+  {
+   "fieldname": "custom_lab_test_items",
+   "fieldtype": "Table",
+   "label": "Custom Lab Test Items",
+   "options": "Lab Test Item"
   }
  ],
  "is_submittable": 1,

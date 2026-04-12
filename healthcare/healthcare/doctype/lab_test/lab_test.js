@@ -365,3 +365,22 @@ var calculate_age = function (dob) {
 		"Month(s)",
 	)} ${age.getDate()} ${__("Day(s)")}`;
 };
+
+frappe.ui.form.on("Descriptive Selection", {
+	value: function(frm, cdt, cdn) {
+		let row = frappe.get_doc(cdt, cdn);
+		if (row.value) {
+			let original_length = (frm.doc.descriptive_selection_items || []).length;
+			
+			// Remove other rows that have the same 'comprehensive' value
+			let remaining_rows = (frm.doc.descriptive_selection_items || []).filter(d => {
+				return d.name === row.name || d.comprehensive !== row.comprehensive;
+			});
+			
+			if (remaining_rows.length !== original_length) {
+				frm.doc.descriptive_selection_items = remaining_rows;
+				frm.refresh_field("descriptive_selection_items");
+			}
+		}
+	}
+});

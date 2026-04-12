@@ -1200,3 +1200,46 @@ def update_appointment_status():
 		appointment_doc = frappe.get_doc("Patient Appointment", appointment.name)
 		appointment_doc.set_status()
 		appointment_doc.save()
+
+@frappe.whitelist()
+def create_multiple_appointments(original_appointment_name, repeats, repeat_until):
+	original_appointment = frappe.get_doc("Patient Appointment", original_appointment_name)
+	repeat_until_date = getdate(repeat_until)
+	
+	schedule_dates = []
+	current_date = getdate(original_appointment.appointment_date)
+	
+	while True:
+		if repeats == "Daily":
+			current_date = add_to_date(current_date, days=1)
+		elif repeats == "Weekly":
+			current_date = add_to_date(current_date, days=7)
+		elif repeats == "Monthly":
+			current_date = add_to_date(current_date, months=1)
+		else:
+			break
+			
+		if getdate(current_date) > repeat_until_date:
+			break
+			
+		schedule_dates.append(current_date)
+		
+	created_count = 0
+	failed_dates = []
+	for date in schedule_dates:
+		new_appointment = frappe.copy_doc(original_appointment)
+		new_appointment.appointment_date = date
+		new_appointment.status = "Scheduled"
+		try:
+			new_appointment.save(ignore_permissions=True)
+			created_count += 1
+		except Exception:
+			frappe.clear_messages()
+			failed_dates.append(format_date(date))
+			
+	if failed_dates:
+		frappe.msgprint(_("Created {} appointments. Failed on dates: {} due to unavailability or overlaps.").format(created_count, ", ".join(failed_dates)))
+	elif created_count > 0:
+		frappe.msgprint(_("Successfully created {} recurring appointments.").format(created_count))
+		
+	return created_count

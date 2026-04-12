@@ -93,6 +93,16 @@ class LabTest(Document):
 						),
 						title=_("Mandatory Results"),
 					)
+ 
+		if self.descriptive_selection_items:
+			for item in self.descriptive_selection_items:
+				if not item.result and not item.allow_blank:
+					frappe.throw(
+						_("Row #{0}: Please enter the result for {1}").format(
+							item.idx, frappe.bold(item.result_component)
+						),
+						title=_("Mandatory Results"),
+					)
 
 	def before_insert(self):
 		if self.service_request:
@@ -298,6 +308,17 @@ def create_descriptives(template, lab_test):
 		descriptive.require_result_value = 1
 		descriptive.allow_blank = descriptive_test_template.allow_blank
 		descriptive.template = template.name
+		
+def create_descriptive_selections(template, lab_test):
+	lab_test.descriptive_selection_toggle = 1
+	for descriptive_test_template in template.descriptive_selection:
+		descriptive = lab_test.append("descriptive_selection_items")
+		descriptive.result_component = descriptive_test_template.result_component
+		descriptive.comprehensive = descriptive_test_template.comprehensive
+		descriptive.allow_blank = descriptive_test_template.allow_blank
+		descriptive.template = template.name
+		descriptive.result = descriptive_test_template.result
+		descriptive.suggestion = descriptive_test_template.suggestion
 
 
 def create_sample_doc(template, patient, invoice, company=None):
@@ -371,6 +392,8 @@ def load_result_format(lab_test, template, prescription, invoice):
 
 	elif template.lab_test_template_type == "Descriptive":
 		create_descriptives(template, lab_test)
+	elif template.lab_test_template_type == "Descriptive Selection":
+		create_descriptive_selections(template, lab_test)
 
 	elif template.lab_test_template_type == "Imaging":
 		create_imaging(template, lab_test)
@@ -400,6 +423,13 @@ def load_result_format(lab_test, template, prescription, invoice):
 						descriptive_heading.allow_blank = 1
 						descriptive_heading.template = template_in_group.name
 						create_descriptives(template_in_group, lab_test)
+ 
+					elif template_in_group.lab_test_template_type == "Descriptive Selection":
+						selection_heading = lab_test.append("descriptive_selection_items")
+						selection_heading.result_component = template_in_group.lab_test_name
+						selection_heading.allow_blank = 1
+						selection_heading.template = template_in_group.name
+						create_descriptive_selections(template_in_group, lab_test)
 
 			else:  # Lab Test Group - Add New Line
 				normal = lab_test.append("normal_test_items")
@@ -593,7 +623,7 @@ def create_single_lab_test_from_invoice(docname, create_bundle=False):
                 },
             )
 
-        lab_test.save()
+        lab_test.save(ignore_permissions=True)
         lab_test_created = lab_test.name
 
     # ============================================================
@@ -645,7 +675,7 @@ def create_single_lab_test_from_invoice(docname, create_bundle=False):
                     "active-Request Status",
                 )
 
-        lab_test.save()
+        lab_test.save(ignore_permissions=True)
         lab_test_created = lab_test.name
 
     return lab_test_created
@@ -717,7 +747,7 @@ def create_single_lab_test_from_encounter(encounter_name, create_bundle=False):
                 "active-Request Status"
             )
 
-        lab_test.save()
+        lab_test.save(ignore_permissions=True)
         lab_test_created = lab_test.name
 
     # ============================================================
@@ -758,7 +788,7 @@ def create_single_lab_test_from_encounter(encounter_name, create_bundle=False):
                 "active-Request Status"
             )
 
-        lab_test.save()
+        lab_test.save(ignore_permissions=True)
         lab_test_created = lab_test.name
 
     return lab_test_created

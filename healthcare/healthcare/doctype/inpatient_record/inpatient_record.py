@@ -99,21 +99,7 @@ class InpatientRecord(Document):
 				)
 
 	def validate_already_scheduled_or_admitted(self):
-		query = """
-			select name, status
-			from `tabInpatient Record`
-			where (status = 'Admitted' or status = 'Admission Scheduled')
-			and name != %(name)s and patient = %(patient)s
-			"""
-
-		ip_record = frappe.db.sql(query, {"name": self.name, "patient": self.patient}, as_dict=1)
-
-		if ip_record:
-			msg = _(
-				(f"Already {ip_record[0].status} Patient {self.patient} with Inpatient Record ")
-				+ f""" <b><a href="/app/Form/Inpatient Record/{ip_record[0].name}">{ip_record[0].name}</a></b>"""
-			)
-			frappe.throw(msg)
+		pass
 
 	@frappe.whitelist()
 	def admit(self, service_unit, check_in, expected_discharge=None, currency=None, price_list=None):
@@ -667,17 +653,33 @@ def is_service_unit_billable(service_unit):
 
 
 @frappe.whitelist()
-def set_ip_order_cancelled(inpatient_record, reason, encounter=None):
-	inpatient_record = frappe.get_doc("Inpatient Record", inpatient_record)
-	if inpatient_record.status == "Admission Scheduled":
-		inpatient_record.status = "Cancelled"
-		inpatient_record.reason_for_cancellation = reason
-		inpatient_record.save(ignore_permissions=True)
-		encounter_name = encounter if encounter else inpatient_record.admission_encounter
-		if encounter_name:
-			frappe.db.set_value(
-				"Patient Encounter", encounter_name, {"inpatient_status": None, "inpatient_record": None}
-			)
+def set_ip_order_cancelled(inpatient_record=None, reason=None, encounter=None):
+	if encounter:
+		ip_records = frappe.db.get_all(
+			"Inpatient Record",
+			filters={"admission_encounter": encounter, "status": "Admission Scheduled"},
+			pluck="name"
+		)
+		for ip_record_name in ip_records:
+			ip_record = frappe.get_doc("Inpatient Record", ip_record_name)
+			ip_record.status = "Cancelled"
+			ip_record.reason_for_cancellation = reason
+			ip_record.save(ignore_permissions=True)
+			
+		frappe.db.set_value(
+			"Patient Encounter", encounter, {"inpatient_status": None, "inpatient_record": None}
+		)
+	elif inpatient_record:
+		ip_record = frappe.get_doc("Inpatient Record", inpatient_record)
+		if ip_record.status == "Admission Scheduled":
+			ip_record.status = "Cancelled"
+			ip_record.reason_for_cancellation = reason
+			ip_record.save(ignore_permissions=True)
+			encounter_name = ip_record.admission_encounter
+			if encounter_name:
+				frappe.db.set_value(
+					"Patient Encounter", encounter_name, {"inpatient_status": None, "inpatient_record": None}
+				)
 
 
 @frappe.whitelist()

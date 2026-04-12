@@ -19,20 +19,20 @@ frappe.ui.form.on("Patient Encounter", {
 							r.message.admission_encounter == frm.doc.name &&
 							r.message.status == "Admission Scheduled"
 						) {
-							frm.add_custom_button(__("Cancel Admission"), function () {
-								cancel_ip_order(frm);
-							});
-						}
+					frm.add_custom_button(__("Cancel Admission"), function () {
+						cancel_ip_order(frm);
+					});
+				}
 						if (r.message.status == "Admitted") {
 							frm.add_custom_button(
 								__("Schedule Discharge"),
 								function () {
-									schedule_discharge(frm);
+						schedule_discharge(frm);
 								},
 							);
 						}
-					}
-				});
+				}
+			});
 		}
 		show_clinical_notes(frm);
 		show_orders(frm);
@@ -77,10 +77,20 @@ frappe.ui.form.on("Patient Encounter", {
 						"Treatment Counselling Created",
 					].includes(frm.doc.inpatient_status)
 				) {
-					frm.add_custom_button(__("Schedule Admission"), function () {
-						schedule_inpatient(frm);
+				frm.add_custom_button(__("Schedule Admission"), function () {
+					schedule_inpatient(frm);
+				});
+			}
+
+				frm.add_custom_button(__("Schedule"), function () {
+					frappe.ui.healthcare_appointment_dialog({
+						patient: frm.doc.patient,
+						practitioner: frm.doc.practitioner,
+						department: frm.doc.medical_department,
+						company: frm.doc.company,
+						appointment_date: frappe.datetime.get_today()
 					});
-				}
+				});
 			}
 
 			frm.add_custom_button(
@@ -1011,3 +1021,324 @@ frappe.ui.form.on("Patient Encounter Diagnosis", {
 		remove_codes(frm, cdt, cdn);
 	},
 });
+
+frappe.ui.healthcare_appointment_dialog = function (opts) {
+	let frm = opts.frm;
+	let selected_slot = null;
+	let service_unit = null;
+	let duration = null;
+	let add_video_conferencing = null;
+	let overlap_appointments = null;
+	let appointment_based_on_check_in = false;
+
+	show_availability();
+
+	function show_empty_state(practitioner, appointment_date) {
+		frappe.msgprint({
+			title: __("Not Available"),
+			message: __("Healthcare Practitioner {0} not available on {1}", [
+				practitioner.bold(),
+				appointment_date.bold(),
+			]),
+			indicator: "red",
+		});
+	}
+
+	function show_availability() {
+		let selected_practitioner = "";
+		let d = new frappe.ui.Dialog({
+			title: __("Available slots"),
+			fields: [
+				{
+					fieldtype: "Link",
+					options: "Medical Department",
+					reqd: 1,
+					fieldname: "department",
+					label: "Medical Department",
+				},
+				{ fieldtype: "Column Break" },
+				{
+					fieldtype: "Link",
+					options: "Healthcare Practitioner",
+					reqd: 1,
+					fieldname: "practitioner",
+					label: "Healthcare Practitioner",
+				},
+				{ fieldtype: "Column Break" },
+				{
+					fieldtype: "Date",
+					reqd: 1,
+					fieldname: "appointment_date",
+					label: "Date",
+					min_date: new Date(frappe.datetime.get_today()),
+				},
+				{ fieldtype: "Section Break" },
+				{
+					fieldtype: "Link",
+					options: "Appointment Type",
+					fieldname: "appointment_type",
+					label: "Appointment Type",
+					reqd: 1
+				},
+				{
+					fieldtype: "Select",
+					fieldname: "repeats",
+					label: "Repeats",
+					options: "Does not repeat\nDaily\nWeekly\nMonthly",
+					default: "Does not repeat",
+				},
+				{ fieldtype: "Column Break" },
+				{
+					fieldtype: "Date",
+					fieldname: "repeat_until",
+					label: "Repeat Until",
+					depends_on: "eval:doc.repeats && doc.repeats != 'Does not repeat'",
+				},
+				{ fieldtype: "Section Break" },
+				{ fieldtype: "HTML", fieldname: "available_slots" },
+			],
+			primary_action_label: __("Book"),
+			primary_action: async function () {
+				let repeats = d.get_value("repeats");
+				let repeat_until = d.get_value("repeat_until");
+
+				d.hide();
+
+				let appointment_name = null;
+
+				// Create via API
+				await frappe.call({
+					method: "frappe.desk.form.save.savedocs",
+					args: {
+						doc: JSON.stringify({
+							doctype: "Patient Appointment",
+							patient: opts.patient,
+							practitioner: d.get_value("practitioner"),
+							department: d.get_value("department"),
+							appointment_date: d.get_value("appointment_date"),
+							appointment_time: selected_slot,
+							appointment_type: d.get_value("appointment_type"),
+							service_unit: service_unit,
+							duration: duration,
+							appointment_based_on_check_in: appointment_based_on_check_in,
+							add_video_conferencing: (add_video_conferencing && !d.$wrapper.find(".opt-out-check").is(":checked") && !overlap_appointments) ? 1 : 0,
+							company: opts.company,
+							status: "Scheduled"
+						}),
+						action: "Save"
+					},
+					freeze: true,
+					callback: function(r) {
+						if (!r.exc) {
+							appointment_name = r.docs[0].name;
+							frappe.show_alert({message: __("Appointment Created: {0}", [appointment_name]), indicator: "green"});
+							if (frm) frm.reload_doc();
+						}
+					}
+				});
+
+				if (appointment_name && repeats && repeats !== "Does not repeat" && repeat_until) {
+					await frappe.call({
+						method: "healthcare.healthcare.doctype.patient_appointment.patient_appointment.create_multiple_appointments",
+						args: {
+							original_appointment_name: appointment_name,
+							repeats: repeats,
+							repeat_until: repeat_until
+						}
+					});
+				}
+			},
+		});
+
+		d.set_values({
+			department: opts.department,
+			practitioner: opts.practitioner,
+			appointment_date: opts.appointment_date,
+		});
+
+		let selected_department = opts.department;
+
+		d.fields_dict["department"].df.onchange = () => {
+			if (selected_department != d.get_value("department")) {
+				d.set_values({
+					practitioner: "",
+				});
+				selected_department = d.get_value("department");
+			}
+			if (d.get_value("department")) {
+				d.fields_dict.practitioner.get_query = function () {
+					return {
+						filters: {
+							department: selected_department,
+						},
+					};
+				};
+			}
+		};
+
+		// disable dialog action initially
+		d.get_primary_btn().attr("disabled", true);
+
+		let fd = d.fields_dict;
+
+		d.fields_dict["appointment_date"].df.onchange = () => {
+			show_slots(d, fd);
+		};
+		d.fields_dict["practitioner"].df.onchange = () => {
+			if (
+				d.get_value("practitioner") &&
+				d.get_value("practitioner") != selected_practitioner
+			) {
+				selected_practitioner = d.get_value("practitioner");
+				show_slots(d, fd);
+			}
+		};
+		d.show();
+	}
+
+	function show_slots(d, fd) {
+		if (d.get_value("appointment_date") && d.get_value("practitioner")) {
+			fd.available_slots.html(`
+				<div class="text-center" style="padding: 20px;">
+					<div class="spinner-border text-primary" role="status">
+						<span class="sr-only">${__("Loading...")}</span>
+					</div>
+					<div class="mt-2 text-muted">${__("Fetching Available Slots...")}</div>
+				</div>
+			`);
+
+			frappe.call({
+				method: "healthcare.healthcare.doctype.patient_appointment.patient_appointment.get_availability_data",
+				args: {
+					practitioner: d.get_value("practitioner"),
+					date: d.get_value("appointment_date"),
+					appointment: {
+						doctype: "Patient Appointment",
+						patient: opts.patient,
+						appointment_type: d.get_value("appointment_type")
+					},
+				},
+				callback: r => {
+					let data = r.message;
+					if (data.slot_details.length > 0) {
+						let $wrapper = d.fields_dict.available_slots.$wrapper;
+
+						let slot_html = get_slots(
+							data.slot_details,
+							data.fee_validity,
+							d.get_value("appointment_date"),
+						);
+
+						$wrapper
+							.css("margin-bottom", 0)
+							.addClass("text-center")
+							.html(slot_html);
+
+						$wrapper.on("click", "button", function () {
+							let $btn = $(this);
+							$wrapper.find("button").removeClass("btn-primary").addClass("btn-secondary");
+							$btn.removeClass("btn-secondary").addClass("btn-primary");
+							
+							selected_slot = $btn.attr("data-name");
+							service_unit = $btn.attr("data-service-unit");
+							appointment_based_on_check_in =
+								$btn.attr("data-day-appointment");
+							duration = $btn.attr("data-duration");
+							add_video_conferencing = parseInt(
+								$btn.attr("data-tele-conf"),
+							);
+							overlap_appointments = parseInt(
+								$btn.attr("data-overlap-appointments"),
+							);
+							
+							d.get_primary_btn().attr("disabled", null);
+						});
+					} else {
+						show_empty_state(
+							d.get_value("practitioner"),
+							d.get_value("appointment_date"),
+						);
+					}
+				},
+				error: () => {
+					fd.available_slots.html("");
+				},
+			});
+		}
+	}
+
+	function get_slots(slot_details, fee_validity, appointment_date) {
+		let slot_html = "";
+
+		slot_details.forEach(slot_info => {
+			slot_html += `<div class="slot-info" style="margin-bottom: 8px; padding-bottom: 8px;">`;
+			
+			if (slot_info.slot_name == "Practitioner Availability") {
+				slot_html += `<span class="text-muted" style="font-size: 13px;"><b>${__("Practitioner Availability:")}</b> ${slot_info.display || slot_info.slot_name}</span><br>`;
+			} else {
+				slot_html += `<span class="text-muted" style="font-size: 13px;"><b>${__("Practitioner Schedule:")}</b> ${slot_info.slot_name}</span><br>`;
+			}
+			
+			if (slot_info.service_unit) {
+				slot_html += `<span class="text-muted" style="font-size: 13px;"><b>${__("Service Unit:")}</b> ${slot_info.service_unit}</span><br>`;
+			}
+
+			slot_html += "</div><div class='slot-container' style='display: flex; flex-wrap: wrap; justify-content: flex-start; gap: 8px;'>";
+
+			slot_html += slot_info.avail_slot
+				.map(slot => {
+					let disabled = false;
+					let start_str = slot.from_time;
+					let slot_start_time = moment(slot.from_time, "HH:mm:ss");
+					let slot_end_time = moment(slot.to_time, "HH:mm:ss");
+					let interval = ((slot_end_time - slot_start_time) / 60000) | 0;
+
+					// Check for overlaps correctly
+					let now = moment();
+					if (
+						now.format("YYYY-MM-DD") == appointment_date &&
+						slot_start_time.isBefore(now) &&
+						!slot.maximum_appointments
+					) {
+						disabled = true;
+					} else {
+						slot_info.appointments.forEach(booked => {
+							let booked_moment = moment(booked.appointment_time, "HH:mm:ss");
+							let booked_end_moment = booked_moment.clone().add(booked.duration || 15, "minutes");
+							
+							if (
+								slot_start_time.isBefore(booked_end_moment) && 
+								slot_end_time.isAfter(booked_moment)
+							) {
+								if (slot_info.allow_overlap != 1) {
+									disabled = true;
+								}
+							}
+						});
+					}
+
+					// Time format
+					let display_time = moment(start_str, "HH:mm:ss").format("HH:mm"); 
+
+					return `
+						<button class="btn btn-default"
+							style="min-width: 60px; font-size: 12px; border-radius: 4px; border: 1px solid #ddd;"
+							data-name="${start_str}"
+							data-duration="${interval}"
+							data-day-appointment="${slot.maximum_appointments ? 1 : 0}"
+							data-tele-conf="${slot_info.tele_conf || 0}"
+							data-overlap-appointments="${slot_info.allow_overlap || 0}"
+							data-service-unit="${slot_info.service_unit || ""}"
+							${disabled ? "disabled" : ""}>
+							${display_time}
+						</button>`;
+				})
+				.join("");
+				
+			slot_html += "</div><br>";
+		});
+
+		return slot_html;
+	}
+};
+

@@ -38,7 +38,7 @@ data = {
 				"label": "Patient",
 				"fieldtype": "Link",
 				"options": "Patient",
-				"insert_after": "naming_series",
+				"insert_after": "customer",
 			},
 			{
 				"fieldname": "patient_name",
