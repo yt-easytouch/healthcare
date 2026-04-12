@@ -132,6 +132,18 @@ frappe.ui.form.on("Lab Test", {
 			frm.refresh_field("codification_table");
 		}
 	},
+
+	validate: function (frm) {
+		if (frm.doc.descriptive_selection_items && frm.doc.descriptive_selection_items.length > 0) {
+			let original_length = frm.doc.descriptive_selection_items.length;
+			let filtered_rows = frm.doc.descriptive_selection_items.filter(row => row.value);
+			
+			if (filtered_rows.length !== original_length) {
+				frm.doc.descriptive_selection_items = filtered_rows;
+				frm.refresh_field("descriptive_selection_items");
+			}
+		}
+	},
 });
 
 frappe.ui.form.on("Lab Test", "patient", function (frm) {
@@ -366,21 +378,3 @@ var calculate_age = function (dob) {
 	)} ${age.getDate()} ${__("Day(s)")}`;
 };
 
-frappe.ui.form.on("Descriptive Selection", {
-	value: function(frm, cdt, cdn) {
-		let row = frappe.get_doc(cdt, cdn);
-		if (row.value) {
-			let original_length = (frm.doc.descriptive_selection_items || []).length;
-			
-			// Remove other rows that have the same 'comprehensive' value
-			let remaining_rows = (frm.doc.descriptive_selection_items || []).filter(d => {
-				return d.name === row.name || d.comprehensive !== row.comprehensive;
-			});
-			
-			if (remaining_rows.length !== original_length) {
-				frm.doc.descriptive_selection_items = remaining_rows;
-				frm.refresh_field("descriptive_selection_items");
-			}
-		}
-	}
-});
