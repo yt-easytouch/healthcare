@@ -31,8 +31,8 @@ def before_install():
 
 
 def add_healthcare_mode():
-	if not frappe.db.exists("Custom Field", {"fieldname": "etpos_mode", "dt": "POS Profile"}):
-		return
+    if not frappe.db.exists("Custom Field", {"fieldname": "etpos_mode", "dt": "POS Profile"}):
+        return
     field = frappe.get_doc("Custom Field", {"fieldname": "etpos_mode", "dt": "POS Profile"})
     if field:
         options = field.options.split("\n")
