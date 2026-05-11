@@ -4,7 +4,7 @@
 
 import datetime
 import json
-from typing import Optional
+from typing import Optional,Union
 
 import frappe
 from frappe import _
@@ -696,7 +696,7 @@ def check_sales_invoice_exists(appointment):
 
 @frappe.whitelist()
 def get_availability_data(
-	date: str, practitioner: str, appointment: str | dict | "PatientAppointment" | None = None
+	date: str, practitioner: str, appointment: str | dict | None = None
 ):
 	"""
 	Get availability data of 'practitioner' on 'date'
