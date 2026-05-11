@@ -1202,44 +1202,119 @@ def update_appointment_status():
 		appointment_doc.save()
 
 @frappe.whitelist()
-def create_multiple_appointments(original_appointment_name, repeats, repeat_until):
+def create_multiple_appointments(original_appointment_name, repeats, repeat_until=None, custom_dates=None, slot_metadata=None):
 	original_appointment = frappe.get_doc("Patient Appointment", original_appointment_name)
-	repeat_until_date = getdate(repeat_until)
-	
+
+	# ── Apply slot_metadata overrides to the original template ──
+	# These will be inherited by all copies via frappe.copy_doc
+	if slot_metadata:
+		meta = slot_metadata if isinstance(slot_metadata, dict) else {}
+		if meta.get("service_unit"):
+			original_appointment.service_unit = meta["service_unit"]
+		if meta.get("duration"):
+			original_appointment.duration = meta["duration"]
+		if meta.get("appointment_based_on_check_in") is not None:
+			original_appointment.appointment_based_on_check_in = meta["appointment_based_on_check_in"]
+		if meta.get("add_video_conferencing") is not None:
+			original_appointment.add_video_conferencing = meta["add_video_conferencing"]
+
 	schedule_dates = []
-	current_date = getdate(original_appointment.appointment_date)
-	
-	while True:
-		if repeats == "Daily":
-			current_date = add_to_date(current_date, days=1)
-		elif repeats == "Weekly":
-			current_date = add_to_date(current_date, days=7)
-		elif repeats == "Monthly":
-			current_date = add_to_date(current_date, months=1)
-		else:
-			break
-			
-		if getdate(current_date) > repeat_until_date:
-			break
-			
-		schedule_dates.append(current_date)
-		
+
+	if repeats == "Custom Dates" and custom_dates:
+		if isinstance(custom_dates, str):
+			custom_dates = json.loads(custom_dates)
+		for dt_str in custom_dates:
+			dt = get_datetime(dt_str)
+			schedule_dates.append(dt)
+	else:
+		if not repeat_until:
+			return {"created_count": 0, "failed_dates": [], "message": _("Repeat Until is required")}
+		repeat_until_date = getdate(repeat_until)
+		current_date = getdate(original_appointment.appointment_date)
+
+		while True:
+			if repeats == "Daily":
+				current_date = add_to_date(current_date, days=1)
+			elif repeats == "Weekly":
+				current_date = add_to_date(current_date, days=7)
+			elif repeats == "Monthly":
+				current_date = add_to_date(current_date, months=1)
+			else:
+				break
+
+			if getdate(current_date) > repeat_until_date:
+				break
+
+			schedule_dates.append(current_date)
+
 	created_count = 0
 	failed_dates = []
-	for date in schedule_dates:
+
+	for dt in schedule_dates:
+		# Determine per-appointment date and time
+		if isinstance(dt, datetime.datetime):
+			appt_date = dt.date()
+			appt_time = dt.time()
+		else:
+			appt_date = dt
+			appt_time = original_appointment.appointment_time
+
+		# ── Validate slot availability before creating ──────────────
+		try:
+			availability_data = get_availability_data(
+				date=appt_date,
+				practitioner=original_appointment.practitioner,
+				appointment={
+					"doctype": "Patient Appointment",
+					"patient": original_appointment.patient,
+					"appointment_type": original_appointment.appointment_type,
+					"appointment_time": str(appt_time or ""),
+					"invoiced": 0,
+				}
+			)
+			time_available = False
+			for slot_detail in availability_data.get("slot_details", []):
+				for avail_slot in slot_detail.get("avail_slot", []):
+					if str(avail_slot.get("from_time", "")) == str(appt_time):
+						time_available = True
+						break
+				if time_available:
+					break
+
+			if not time_available:
+				failed_dates.append(format_date(appt_date))
+				continue
+		except Exception:
+			frappe.clear_messages()
+			# Availability check itself errored (holiday, leave, no schedule).
+			# Skip this date and report as failed.
+			failed_dates.append(format_date(appt_date))
+			continue
+
+		# ── Create appointment via copy ─────────────────────────────
 		new_appointment = frappe.copy_doc(original_appointment)
-		new_appointment.appointment_date = date
+		new_appointment.appointment_date = appt_date
+		new_appointment.appointment_time = appt_time
 		new_appointment.status = "Scheduled"
+		new_appointment.flags.ignore_validate = False
+
 		try:
 			new_appointment.save(ignore_permissions=True)
 			created_count += 1
 		except Exception:
 			frappe.clear_messages()
-			failed_dates.append(format_date(date))
-			
+			failed_dates.append(format_date(appt_date))
+
+	total = len(schedule_dates)
 	if failed_dates:
-		frappe.msgprint(_("Created {} appointments. Failed on dates: {} due to unavailability or overlaps.").format(created_count, ", ".join(failed_dates)))
+		frappe.msgprint(
+			_("Created {} / {} appointments. Failed on: {}").format(
+				created_count, total, ", ".join(failed_dates)
+			)
+		)
 	elif created_count > 0:
 		frappe.msgprint(_("Successfully created {} recurring appointments.").format(created_count))
-		
-	return created_count
+	elif total == 0:
+		frappe.msgprint(_("No appointments to create."))
+
+	return {"created_count": created_count, "failed_dates": failed_dates, "total": total}
