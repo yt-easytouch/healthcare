@@ -258,12 +258,12 @@ frappe.ui.form.on("Patient Encounter", {
 			frappe.meta.get_docfield("Drug Prescription", "medication").in_list_view ===
 			1
 		) {
-			frm.set_query("drug_code", "drug_prescription", function (doc, cdt, cdn) {
-				let row = frappe.get_doc(cdt, cdn);
-				let filters = { is_stock_item: 1 };
-				if (row.medication) {
-					filters.medication = row.medication;
-				}
+		frm.set_query("drug_code", "drug_prescription", function (doc, cdt, cdn) {
+			let row = frappe.get_doc(cdt, cdn);
+			let filters = { is_stock_item: 1 };
+			if (row && row.medication) {
+				filters.medication = row.medication;
+			}
 				return {
 					query: "healthcare.healthcare.doctype.patient_encounter.patient_encounter.get_medications_query",
 					filters: filters,
