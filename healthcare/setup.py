@@ -828,6 +828,15 @@ def create_healthcare_item_groups():
 
 
 def create_customer_groups():
+	parent = {
+		"doctype": "Customer Group",
+		"customer_group_name": _("All Customer Groups"),
+		"is_group": 1,
+		"parent_customer_group": "",
+	}
+	if not frappe.db.exists(parent["doctype"], parent["customer_group_name"]):
+		insert_record([parent])
+
 	records = [
 		{
 			"doctype": "Customer Group",
